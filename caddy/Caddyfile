@@ -1,0 +1,101 @@
+{
+    servers {
+                listener_wrappers {
+                                      layer4 {
+                                                 @xmpps-client {
+                                                                   tls {
+                                                                           sni {$DOMAIN}
+                                                                           alpn xmpp-client
+                                                                       }
+                                                               }
+                                                 route @xmpps-client {
+                                                                         proxy {
+                                                                                   upstream ejabberd:5223
+                                                                               }
+                                                                     }
+
+                                                 @xmpps-server {
+                                                                   tls {
+                                                                           sni {$DOMAIN}
+                                                                           alpn xmpp-server
+                                                                       }
+                                                               }
+                                                 route @xmpps-server {
+                                                                         proxy {
+                                                                                   upstream ejabberd:5269
+                                                                               }
+                                                                     }
+                                             }
+                                      tls
+                                  }
+            }
+}
+
+https://{$DOMAIN}:443 {
+                      handle /admin/* {
+                                      reverse_proxy ejabberd:5280
+                                      }
+                      handle /api/* {
+                                    reverse_proxy ejabberd:5280
+                                    }
+                      handle /bosh {
+                                   reverse_proxy ejabberd:5280
+                                   }
+                      handle /ws/* {
+                                   reverse_proxy ejabberd:5280
+                                   }
+
+                      # Для загрузок через основной домен (если клиенты используют /upload)
+                      handle /upload/* {
+                                       reverse_proxy ejabberd:5280 {
+                                                                   transport http {
+                                                                                  versions 1.1
+                                                                                  }
+                                                                   header_up Host {host}
+                                    }
+                        }
+
+                      root * /var/www/html
+                      php_fastcgi php:9000
+                      file_server
+                      }
+
+                 pubsub.{$DOMAIN} {
+                                  reverse_proxy ejabberd:5280
+                                  }
+
+                 upload.{$DOMAIN} {
+                                  # Обработка preflight-запросов OPTIONS для CORS
+                                  @options {
+                                           method OPTIONS
+                                           }
+                                  handle @options {
+                                                  header {
+                                                         Access-Control-Allow-Origin *
+                                                         Access-Control-Allow-Methods "PUT, GET, OPTIONS"
+                                                         Access-Control-Allow-Headers "Content-Type"
+                                                         Access-Control-Max-Age 86400
+                                                         }
+                                                  respond "" 204
+                                                  }
+
+                                  # Прокси для всех остальных запросов (PUT, GET и т.д.)
+                                  reverse_proxy ejabberd:5280 {
+                                                              transport http {
+                                                                             versions 1.1
+                                                                             }
+                                                              # Передаём оригинальный Host, который был в запросе к Caddy
+                                                              header_up Host {host}
+                                                              # Добавляем CORS-заголовок к ответу от сервера
+                                                              header_down Access-Control-Allow-Origin *
+                                                              }
+}
+
+                 conference.{$DOMAIN} {
+                                      reverse_proxy ejabberd:5280
+                                      }
+
+chat.{$DOMAIN} {
+
+               reverse_proxy ejabberd:5280
+               }

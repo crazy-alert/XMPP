@@ -1,0 +1,150 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: xmpp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose:
+      - "5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - xmpp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ejabberd:
+    image: ejabberd/ecs:latest
+    container_name: xmpp_ejabberd
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cert-copier:
+        condition: service_completed_successfully
+    environment:
+      # Основные переменные - они переопределят значения в YAML
+       EJABBERD_MACRO_HOST: ${DOMAIN}
+       EJABBERD_MACRO_ADMIN_JID: ${EJABBERD_ADMIN_JID}
+       EJABBERD_MACRO_DB_NAME: ${POSTGRES_DB}
+       EJABBERD_MACRO_DB_USER: ${POSTGRES_USER}
+       EJABBERD_MACRO_DB_PASS: ${POSTGRES_PASSWORD}
+       EJABBERD_MACRO_TURN_IP: ${PUBLIC_IP}
+       EJABBERD_MACRO_TURN_SECRET: ${TURN_SECRET}
+    expose:
+      - "5223"             # TCP-порт для клиентских подключений (c2s)
+      - "5269"             # TCP-порт для серверных соединений (s2s)
+      - "5280"             # HTTP-интерфейс
+#    ports:
+#      - "3478:3478/udp" # UDP-порт для STUN/TURN (VoIP, WebRTC)
+#      - "5349:5349"     # TCP-порт для STUN/TURN с TLS
+    volumes:
+      - ./data/ejabberd/ssl:/certs:ro
+      - ./ejabberd/ejabberd.yml:/home/ejabberd/conf/ejabberd.yml:ro
+      - ./data/ejabberd/backup:/home/ejabberd/backup
+      # - ./data/ejabberd/upload:/home/ejabberd/upload
+    networks:
+      - xmpp_network
+
+  php:
+    image: php:8.4-fpm-alpine
+    container_name: xmpp_php
+    restart: unless-stopped
+    volumes:
+      - ./php:/var/www/html
+    networks:
+      - xmpp_network
+
+  caddy:
+    build: ./caddy/build
+    container_name: xmpp_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}   # передаём домен в Caddy для использования в Caddyfile
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+      - ./php:/var/www/html
+    networks:
+      - xmpp_network
+    depends_on:
+      - php
+
+  cert-copier:
+    image: alpine:latest
+    container_name: xmpp_cert_copier
+    depends_on:
+      - caddy
+    volumes:
+      - ./data/caddy/data:/caddy_data:ro
+      - ./data/ejabberd/ssl:/ejabberd_ssl
+    command: |
+      sh -c "
+      echo 'Ожидание появления сертификатов от Caddy...' &&
+      while [ -z \"$$(ls -A /caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/*/*.crt 2>/dev/null)\" ]; do
+        sleep 2
+      done &&
+      echo 'Сертификаты найдены, начинаю копирование...' &&
+      cp /caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/*/*.crt /ejabberd_ssl/ 2>/dev/null || true &&
+      cp /caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/*/*.key /ejabberd_ssl/ 2>/dev/null || true &&
+      for f in /ejabberd_ssl/*.crt; do
+        [ -f \"$$f\" ] && mv \"$$f\" \"$$(dirname \"$$f\")/$$(basename \"$$f\" .crt).pem\"
+      done &&
+      if [ -n \"$$(ls -A /ejabberd_ssl)\" ]; then
+        chown -R 9000:9000 /ejabberd_ssl/* &&
+        chmod 640 /ejabberd_ssl/*
+      fi &&
+      echo 'Копирование завершено.'
+      "
+    restart: "no"
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: xmpp_coturn
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      cert-copier:
+        condition: service_completed_successfully
+    environment:
+      - TURN_PORT=3478
+      - TURN_TLS_PORT=5349
+      - TURN_MIN_PORT=49152
+      - TURN_MAX_PORT=65535
+      - TURN_SECRET=${TURN_SECRET}
+      - TURN_REALM=${DOMAIN}
+      - PUBLIC_IP=${PUBLIC_IP}
+    volumes:
+      - ./data/ejabberd/ssl:/certs:ro
+    command:
+      - -n
+      - --cert=/certs/${DOMAIN}.pem
+      - --pkey=/certs/${DOMAIN}.key
+      - --listening-port=3478
+      - --tls-listening-port=5349
+      - --min-port=49152
+      - --max-port=65535
+      - --realm=${DOMAIN}
+      - --static-auth-secret=${TURN_SECRET}
+      - --use-auth-secret
+      - --fingerprint
+      - --no-tcp-relay
+      - --log-file=stdout
+      - --external-ip=${PUBLIC_IP}
+      - --no-cli
+      # при необходимости можно добавить:
+      # - --no-tlsv1_2                    # если нужно отключить TLSv1.2 (оставить только TLSv1.3)
+
+networks:
+  xmpp_network:
+    driver: bridge

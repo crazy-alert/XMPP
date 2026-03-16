@@ -1,0 +1,174 @@
+define_macro:
+  HOST: ""
+  ADMIN_JID: ""
+  SSL_DIR: ""
+  DB_NAME: ""
+  DB_USER: ""
+  DB_PASS: ""
+  TURN_SECRET: ""
+  TURN_IP: ""
+
+certfiles:
+  - "/certs/@HOST@.pem"
+  - "/certs/@HOST@.key"
+  - "/certs/chat.@HOST@.pem"
+  - "/certs/chat.@HOST@.key"
+  - "/certs/conference.@HOST@.pem"
+  - "/certs/conference.@HOST@.key"
+  - "/certs/pubsub.@HOST@.pem"
+  - "/certs/pubsub.@HOST@.key"
+  - "/certs/upload.@HOST@.pem"
+  - "/certs/upload.@HOST@.key"
+
+
+sql_type: pgsql
+sql_server: postgres
+sql_port: 5432
+sql_database: DB_NAME
+sql_username: DB_USER
+sql_password: DB_PASS
+default_db: sql
+# default_db: internal       # Используется встроенная база данных ejabberd (Mnesia)
+# sql_schema_multihost: true
+
+
+# ------------------------------
+# 2. Основные настройки хостов и логирования
+# ------------------------------
+# Список доменов, которые обслуживает сервер
+# loglevel: 4                # Уровень логирования (0 - минимум, 5 - максимум). 4 = подробные логи
+loglevel: debug
+log_rotate_size: 10485760  # Максимальный размер файла лога (10 МБ)
+log_rotate_count: 1        # Количество сохраняемых старых файлов логов (1 — только один архив)
+
+hosts:                     # Список доменов, обслуживаемых сервером XMPP
+  - HOST     # Основной XMPP-домен сервера
+
+acl:                       # Access Control Lists — списки доступа
+  admin:                   # Группа администраторов
+    user:
+      - ADMIN_JID  # Пользователь с правами администратора
+
+acme:
+  auto: false              # Автоматическое получение SSL-сертификатов через Let's Encrypt выключено
+
+access_rules:              # Правила доступа для различных сервисов
+  local:                   # Локальные подключения (например, скрипты)
+    allow: all             # Разрешены всем
+  c2s:                     # Client-to-Server (подключение клиентов)
+    allow: all             # Разрешено всем пользователям
+  s2s:                     # Server-to-Server (федерация XMPP)
+    allow: all             # Разрешено соединение с любыми серверами
+  configure:               # Доступ к административным функциям
+    allow: admin           # Разрешено только администраторам
+
+listen:                    # Конфигурация прослушиваемых портов
+  - port: 5223             # TCP-порт для клиентских подключений (c2s)
+    module: ejabberd_c2s   # Модуль для Client-to-Server соединений
+    # starttls: true         # Поддержка STARTTLS устар, это для старого 5222 порта
+    tls: true 
+    max_stanza_size: 65536 # Максимальный размер XMPP-сообщения (в байтах)
+    shaper: c2s_shaper     # Ограничение скорости для клиентов
+
+  - port: 5269             # TCP-порт для серверных соединений (s2s)
+    module: ejabberd_s2s_in # Модуль для Server-to-Server соединений
+    max_stanza_size: 131072 # Максимальный размер пакета (128 КБ)
+    shaper: s2s_shaper     # Ограничение скорости для серверов
+
+  - port: 5280             # HTTP-интерфейс
+    module: ejabberd_http  # Модуль веб-доступа
+    request_handlers:      # Обработчики путей
+      "/admin": ejabberd_web_admin # Веб-интерфейс админики
+      "/api": mod_http_api        # HTTP API
+      "/bosh": mod_bosh           # BOSH (HTTP-подключение XMPP-клиентов)
+      "/ws": ejabberd_http_ws     # WebSocket-подключения
+      "/upload": mod_http_upload  # HTTP File Upload
+
+s2s_use_starttls: optional # Нужно чтоб завести пуши на IOS
+
+modules:                   # Подключенные модули ejabberd
+  mod_stun_disco:
+    services:
+      - host: "@TURN_IP@"
+        port: 3478                    # порт для UDP (STUN/TURN)
+        type: stun
+        transport: udp
+      - host: "@TURN_IP@"
+        port: 3478
+        type: turn
+        transport: udp
+      - host: "@TURN_IP@"
+        port: 5349                    # порт для TLS (TURNS)
+        type: turns
+        transport: tcp
+    secret: "@TURN_SECRET@"
+  mod_invites: {}
+  mod_roster: {}
+  mod_admin_update_sql: {}
+  mod_fail2ban: {}
+  mod_adhoc: {}            # Ad-hoc команды (XEP-0050)
+  mod_admin_extra: {}      # Дополнительные административные функции
+  mod_announce:            # Модуль объявлений (broadcast)
+    access: admin          # Только администраторы могут рассылать
+  mod_vcard: {}
+  mod_vcard_xupdate: {}
+  mod_avatar: {}           # Поддержка аватаров пользователей
+  mod_blocking: {}         # Блокировка контактов (XEP-0191)
+  mod_bosh: {}             # Поддержка BOSH
+  mod_caps: {}             # Entity Capabilities (XEP-0115)
+  mod_carboncopy: {}       # Сообщения копируются на все устройства (XEP-0280)
+  mod_client_state: {}     # Состояние клиента (idle/active)
+  mod_configure: {}        # Конфигурация через XMPP
+  mod_disco: {}            # Service Discovery (XEP-0030)
+  mod_http_api: {}         # REST API
+  mod_http_upload:
+    put_url: "https://upload.@HOST@/upload/"
+    docroot: "/home/ejabberd/upload"
+    max_size: 104857600
+    thumbnail: true
+    custom_headers:
+      "Access-Control-Allow-Origin": "https://@HOST@"
+      "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
+      "Access-Control-Allow-Headers": "Content-Type"
+  mod_http_upload_quota:
+    max_days: 30
+  mod_last: {}           # Последняя активность пользователя (XEP-0012)
+  mod_mam:                 # Message Archive Management (XEP-0313)
+    db_type: sql                        # Хранить архивы в SQL
+    default: always                      # По умолчанию архивировать всё
+    request_activates_archiving: true    # Пользователь может включить архив
+  mod_muc:                 # Multi-User Chat (XEP-0045)
+    hosts: 
+      - "conference.@HOST@"
+      - "chat.@HOST@"
+    access: all            # Доступен всем
+    access_create: all     # Любой может создавать комнаты
+    access_persistent: all # Разрешены постоянные комнаты
+    access_admin: admin    # Администрирование комнат — только админ
+  mod_ping: {}             # Ping (XEP-0199)
+  mod_privacy: {}          # Privacy Lists (XEP-0016)
+  mod_private: {}          # Хранение приватных данных (XEP-0049)
+  mod_pubsub:              # PubSub (XEP-0060)
+    host: "pubsub.@HOST@"
+    access_createnode: all # Разрешено всем создавать узлы
+    plugins:               # Подключенные плагины
+      - "flat"             # Простая структура
+      - "pep"              # Personal Eventing Protocol (XEP-0163)
+    force_node_config:     # Настройки по умолчанию для узлов
+      "urn:xmpp:microblog:0": # Микроблоги
+        deliver_payloads: true # Доставлять данные сразу
+        notify_retract: true   # Уведомлять об удалении
+        persist_items: true    # Хранить данные
+        max_items: 100         # Максимум 100 сообщений
+  mod_push:             # Push-уведомления
+    db_type: sql
+  # notify_on: all           # Тоже пуши 
+  mod_push_keepalive: {}     # Поддержка keepalive для push
+  mod_stream_mgmt: {}
+  mod_register:              # Регистрация пользователей
+    # access: none           # Отключена (запрет регистрации)
+    # ip_access: none        # Нельзя регистрироваться ни с какого IP
+    captcha_protected: false
+    registration_watchers: # Уведомления о регистрации
+      - ADMIN_JID # Администратор получает уведомления
+
