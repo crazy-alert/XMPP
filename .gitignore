@@ -1,0 +1,13 @@
+.vscode/
+.idea/
+.alcache/
+.alpackages/
+.snapshots/
+.output/
+*.app
+rad.json
+*.g.xlf
+*.flf
+TestResults.xml
+/data/
+/.env
