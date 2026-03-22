@@ -60,7 +60,7 @@ services:
     container_name: xmpp_php
     restart: unless-stopped
     volumes:
-      - ./php:/var/www/html
+      - ./www:/var/www
     networks:
       - xmpp_network
 
