@@ -219,8 +219,11 @@ main() {
     fi
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
-    info "Клонирование репозитория..."
-    git clone -v "$REPO_URL" .
+
+git init
+git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
+git fetch --all --force
+git reset --hard origin/$(git branch -r --show-current | sed 's/.*\///')  # или указать нужную ветку
 
     # 6. Запрос домена и проверка DNS
     read -p "Введите ваш домен (например, example.org): " DOMAIN
