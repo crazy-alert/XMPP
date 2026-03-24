@@ -82,6 +82,7 @@ listen:                    # Конфигурация прослушиваемы
     request_handlers:      # Обработчики путей
       "/admin": ejabberd_web_admin # Веб-интерфейс админики
       "/api": mod_http_api        # HTTP API
+      "/oauth": ejabberd_oauth
       "/bosh": mod_bosh           # BOSH (HTTP-подключение XMPP-клиентов)
       "/ws": ejabberd_http_ws     # WebSocket-подключения
       "/upload": mod_http_upload  # HTTP File Upload
