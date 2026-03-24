@@ -66,6 +66,27 @@ create_ejabberd_user() {
         fi
     fi
 }
+create_user_token() {
+    local container=$1
+    local user_jid=$2
+
+    local username=$(echo "$user_jid" | cut -d@ -f1)
+    local host=$(echo "$user_jid" | cut -d@ -f2)
+
+    info "Генерация OAuth-токена для пользователя $user_jid..."
+    sleep 5
+    local token
+    token=$(docker compose exec "$container" /home/ejabberd/bin/ejabberdctl oauth_issue_token "$user_jid" 32140800 "ejabberd:admin" 2>/dev/null | tail -n1)
+echo "$token"
+
+    if [ -n "$token" ] && [[ "$token" =~ ^[A-Za-z0-9_\-]+$ ]]; then
+        echo "$token"        # возвращаем токен через stdout
+        info "OAuth-токен для пользователя сгенерирован."
+    else
+        warn "Не удалось получить OAuth-токен для $user_jid. Проверьте, что модуль OAuth включён в ejabberd."
+        return 1
+    fi
+}
 
 # Настройка UFW
 configure_ufw() {
@@ -239,7 +260,7 @@ main() {
     POSTGRES_PASSWORD=$(openssl rand -hex 8)
     TURN_PASSWORD=$(openssl rand -hex 32)
     TURN_SECRET=$(openssl rand -hex 32)
-    EJABBERD_ADMIN_JID=admin$DOMAIN
+    EJABBERD_ADMIN_JID=admin@$DOMAIN
 
     sed -i "s/^DOMAIN=.*/DOMAIN=$DOMAIN/" .env
     sed -i "s/^PUBLIC_IP=.*/PUBLIC_IP=$PUBLIC_IP/" .env
@@ -265,6 +286,9 @@ main() {
     # Создаём админиa
     create_ejabberd_user "ejabberd" "$EJABBERD_ADMIN_JID" "$EJABBERD_ADMIN_PASSWORD"
 
+    EJABBERD_TOKEN=$(create_user_token "ejabberd" "$EJABBERD_ADMIN_JID")
+
+
     # 13. Финальное сообщение
     echo -e "${GREEN}"
     cat << EOF
@@ -279,6 +303,8 @@ main() {
         пароль: $EJABBERD_ADMIN_PASSWORD
    имя сервера: $DOMAIN
           порт: 443
+
+OAuth-токен для пользователя сгенерирован: $EJABBERD_TOKEN
 
 Внимание:
  - для подключения в клиенте необходимо указывать порты 443 (по умолчанию там 5222)!
