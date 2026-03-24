@@ -212,11 +212,10 @@ main() {
     # 5. Подготовка директории и клонирование репозитория
     if [ -d "$INSTALL_DIR" ]; then
         warn "Директория $INSTALL_DIR уже существует."
-        read -p "Продолжить и перезаписать файлы? (y/N): " CONFIRM
+        read -p "Продолжить? (y/N): " CONFIRM
         if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
             error "Установка отменена."
         fi
-        rm -rf "$INSTALL_DIR"
     fi
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
