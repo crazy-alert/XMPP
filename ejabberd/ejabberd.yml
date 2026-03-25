@@ -121,6 +121,8 @@ modules:                   # Подключенные модули ejabberd
     secret: "@TURN_SECRET@"
   mod_invites: {}
   mod_roster: {}
+  mod_shared_roster:
+    db_type: sql
   mod_admin_update_sql: {}
   mod_fail2ban: {}
   mod_adhoc: {}            # Ad-hoc команды (XEP-0050)
